@@ -9,22 +9,24 @@ CORS(app)
 
 # Recuperiamo il token dalle variabili d'ambiente di Render
 HF_TOKEN = os.getenv("HF_TOKEN")
-
-# Inizializziamo il client
 client = InferenceClient(token=HF_TOKEN)
 
-# CAMBIAMO MODELLO: Zephyr è il "re" della stabilità per la chat gratuita su HF
-MODEL_ID = "HuggingFaceH4/zephyr-7b-beta"
+# Lista di modelli "sicuri" su HuggingFace (in ordine di priorità)
+# Phi-3 è di Microsoft ed è estremamente stabile e veloce su HF
+MODELS = [
+    "microsoft/Phi-3-mini-4k-instruct",
+    "Qwen/Qwen2.5-7B-Instruct",
+    "mistralai/Mistral-7B-Instruct-v0.3"
+]
 
 @app.route('/', methods=['GET'])
 def home():
-    return "Maya AI (Stable Chat) Online", 200
+    return "Maya AI (Resilient Mode) Online", 200
 
 @app.route('/ask', methods=['POST'])
 def chat():
     try:
         data = request.get_json(force=True)
-        
         query = data.get("query", "")
         nome_rist = data.get("nome", "il ristorante")
         menu_data = data.get("menu", "Menu non disponibile")
@@ -32,49 +34,49 @@ def chat():
         giorno_oggi = data.get("giorno_settimana", "oggi") 
 
         if not query or not HF_TOKEN:
-            return jsonify({"success": False, "error": "Token HF mancante o domanda vuota"})
+            return jsonify({"success": False, "error": "Configurazione mancante"})
 
-        # Istruzioni di sistema
         system_instructions = f"""
-Sei Maya, l'assistente virtuale di {nome_rist}. Rispondi in italiano.
-Oggi è {giorno_oggi}.
-
-CONTESTO:
-- MENU: {menu_data}
-- ORARI: {hours_data}
-
-REGOLE:
-- Orari 'schedule' (0-6): 0=Lun, 1=Mar, 2=Mer, 3=Gio, 4=Ven, 5=Sab, 6=Dom.
-- Se chiedono 'oggi', controlla 'is_open' e il giorno corrente.
-- Usa SOLO i dati forniti. Se non sai qualcosa, dillo gentilmente.
-- Sii amichevole e usa emoji 🍕.
+Sei Maya, l'assistente virtuale di {nome_rist}. Rispondi in italiano. Oggi è {giorno_oggi}.
+CONTESTO: Menu: {menu_data} | Orari: {hours_data}
+REGOLE: 
+- Indici Orari (0-6): 0=Lun, 1=Mar, 2=Mer, 3=Gio, 4=Ven, 5=Sab, 6=Dom.
+- Usa SOLO i dati forniti. Sii amichevole e usa emoji 🍕.
 """
 
-        # Chiamata chat_completion
-        response = client.chat_completion(
-            model=MODEL_ID,
-            messages=[
-                {"role": "system", "content": system_instructions},
-                {"role": "user", "content": query}
-            ],
-            max_tokens=500,
-            temperature=0.7
-        )
-        
-        final_reply = response.choices[0].message.content
-        
+        # Tentiamo i modelli uno alla volta finché uno non risponde
+        last_error = ""
+        for model_id in MODELS:
+            try:
+                response = client.chat_completion(
+                    model=model_id,
+                    messages=[
+                        {"role": "system", "content": system_instructions},
+                        {"role": "user", "content": query}
+                    ],
+                    max_tokens=500,
+                    temperature=0.7
+                )
+                final_reply = response.choices[0].message.content
+                
+                # Se arriviamo qui, il modello ha risposto!
+                return jsonify({"success": True, "reply": final_reply})
+            
+            except Exception as e:
+                last_error = str(e)
+                print(f"Modello {model_id} fallito, provo il prossimo... Errore: {last_error}", file=sys.stderr)
+                continue # Passa al prossimo modello nella lista
+
+        # Se arriviamo qui, tutti i modelli hanno fallito
         return jsonify({
-            "success": True, 
-            "reply": final_reply
+            "success": False, 
+            "error": "Tutti i provider sono offline",
+            "reply": "Scusami, i miei circuiti sono un po' sovraccarichi. Riprova tra un minuto! 🤖"
         })
 
     except Exception as e:
-        print(f"ERRORE MAYA: {str(e)}", file=sys.stderr)
-        return jsonify({
-            "success": False, 
-            "error": str(e),
-            "reply": "Scusami, ho avuto un piccolo intoppo tecnico. Prova a riformulare la domanda!"
-        })
+        print(f"ERRORE CRITICO: {str(e)}", file=sys.stderr)
+        return jsonify({"success": False, "error": str(e)})
 
 if __name__ == "__main__":
     app.run(host='0.0.0.0', port=5000)

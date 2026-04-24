@@ -7,32 +7,31 @@ import sys
 app = Flask(__name__)
 CORS(app)
 
-# --- CONFIGURAZIONE HUGGINGFACE ---
-# Incolla qui il tuo Token (es: "hf_xxxxxxxxxxxxxxxxx")
-HF_TOKEN = "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"
+# --- CONFIGURAZIONE SICURA ---
+# Non scriviamo la chiave qui! La leggeremo dalle impostazioni di Render
+HF_TOKEN = os.getenv("HF_TOKEN")
 
-# Usiamo un modello potentissimo e gratuito: Mistral-7B-Instruct
+# Usiamo Mistral-7B (uno dei migliori modelli open source)
 client = InferenceClient("mistralai/Mistral-7B-Instruct-v0.3", token=HF_TOKEN)
 
 @app.route('/', methods=['GET'])
 def home():
-    return "Maya AI (Stable Edition) Online", 200
+    return "Maya AI (Safe Mode) Online", 200
 
 @app.route('/ask', methods=['POST'])
 def chat():
     try:
         data = request.get_json(force=True)
-        
         query = data.get("query", "")
         nome_rist = data.get("nome", "il ristorante")
         menu_data = data.get("menu", "Menu non disponibile")
         hours_data = data.get("hours", "Orari non disponibili")
         giorno_oggi = data.get("giorno_settimana", "oggi") 
 
-        if not query:
-            return jsonify({"success": False, "error": "Domanda vuota"})
+        if not query or not HF_TOKEN:
+            return jsonify({"success": False, "error": "Configurazione mancante o domanda vuota"})
 
-        # Il tuo prompt preferito intatto
+        # Il tuo prompt preferito
         full_prompt = f"""<s>[INST] Sei Maya, l'assistente virtuale di {nome_rist}. Rispondi in italiano.
 Oggi è {giorno_oggi}.
 
@@ -48,7 +47,6 @@ REGOLE DI RISPOSTA:
 
 DOMANDA DEL CLIENTE: {query} [/INST]"""
 
-        # Chiamata ufficiale (Niente blocchi IP, niente SIGKILL)
         response = client.text_generation(
             full_prompt,
             max_new_tokens=500,
@@ -66,7 +64,7 @@ DOMANDA DEL CLIENTE: {query} [/INST]"""
         return jsonify({
             "success": False, 
             "error": str(e),
-            "reply": "Scusami, ho avuto un piccolo rallentamento. Riprova tra un istante!"
+            "reply": "Scusami, ho un piccolo rallentamento. Riprova!"
         })
 
 if __name__ == "__main__":

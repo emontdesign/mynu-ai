@@ -22,7 +22,17 @@ def chat():
             return jsonify({"success": False, "error": "Messaggio vuoto"})
 
         # Prompt di sistema
-        system_instruction = f"Sei Maya, assistente di {nome}. Rispondi in italiano. Menu: {menu}. Orari: {opening}. Servizi: {services}."
+       system_instruction = f"""
+        ISTRUZIONI RIGIDE: Sei Maya, l'assistente di {nome}. 
+        NON rispondere in modo generico. 
+        USA ESCLUSIVAMENTE i dati qui sotto per rispondere. 
+        
+        MENU: {menu}
+        ORARI: {opening}
+        SERVIZI: {services}
+        
+        Se l'informazione non è in questi dati, dì che non lo sai, non inventare e non dare risposte standard da AI.
+        """
 
         # CHIAMATA AI: Rimossa la specifica del provider per evitare crash
         # g4f sceglierà automaticamente il migliore disponibile al momento

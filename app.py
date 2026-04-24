@@ -1,21 +1,28 @@
+import os
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-from duckduckgo_search import DDGS
+from huggingface_hub import InferenceClient
 import sys
 
 app = Flask(__name__)
 CORS(app)
 
+# --- CONFIGURAZIONE HUGGINGFACE ---
+# Incolla qui il tuo Token (es: "hf_xxxxxxxxxxxxxxxxx")
+HF_TOKEN = "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"
+
+# Usiamo un modello potentissimo e gratuito: Mistral-7B-Instruct
+client = InferenceClient("mistralai/Mistral-7B-Instruct-v0.3", token=HF_TOKEN)
+
 @app.route('/', methods=['GET'])
 def home():
-    return "Maya AI Online - Pronto al servizio", 200
+    return "Maya AI (Stable Edition) Online", 200
 
 @app.route('/ask', methods=['POST'])
 def chat():
     try:
         data = request.get_json(force=True)
         
-        # Recupero dati dal bridge PHP
         query = data.get("query", "")
         nome_rist = data.get("nome", "il ristorante")
         menu_data = data.get("menu", "Menu non disponibile")
@@ -25,9 +32,8 @@ def chat():
         if not query:
             return jsonify({"success": False, "error": "Domanda vuota"})
 
-        # Il tuo prompt preferito adattato
-        full_prompt = f"""
-Sei Maya, l'assistente virtuale di {nome_rist}. Rispondi in italiano.
+        # Il tuo prompt preferito intatto
+        full_prompt = f"""<s>[INST] Sei Maya, l'assistente virtuale di {nome_rist}. Rispondi in italiano.
 Oggi è {giorno_oggi}.
 
 CONTESTO OBBLIGATORIO:
@@ -40,30 +46,27 @@ REGOLE DI RISPOSTA:
 - Usa SOLO le informazioni fornite. Se non trovi un piatto o un orario, dì che non lo sai.
 - Sii cordiale e usa le emoji 🍕.
 
-DOMANDA DEL CLIENTE: {query}
-"""
+DOMANDA DEL CLIENTE: {query} [/INST]"""
 
-        # Chiamata a DuckDuckGo con la nuova sintassi corretta
-        with DDGS() as ddgs:
-            # Eseguiamo la richiesta chat
-            response = ddgs.chat(full_prompt, model='gpt-4o-mini')
-            
-            # Se la risposta è valida, la restituiamo
-            if response:
-                return jsonify({
-                    "success": True, 
-                    "reply": str(response)
-                })
-            else:
-                raise Exception("Risposta vuota dall'AI")
+        # Chiamata ufficiale (Niente blocchi IP, niente SIGKILL)
+        response = client.text_generation(
+            full_prompt,
+            max_new_tokens=500,
+            temperature=0.7,
+            repetition_penalty=1.2
+        )
+        
+        return jsonify({
+            "success": True, 
+            "reply": str(response)
+        })
 
     except Exception as e:
-        # Stampiamo l'errore nei log di Render per vederlo
         print(f"ERRORE MAYA: {str(e)}", file=sys.stderr)
         return jsonify({
             "success": False, 
             "error": str(e),
-            "reply": "Scusami, ho avuto un piccolo rallentamento. Puoi riprovare?"
+            "reply": "Scusami, ho avuto un piccolo rallentamento. Riprova tra un istante!"
         })
 
 if __name__ == "__main__":

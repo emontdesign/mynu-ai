@@ -12,12 +12,13 @@ HF_TOKEN = os.getenv("HF_TOKEN")
 
 # Inizializziamo il client
 client = InferenceClient(token=HF_TOKEN)
-# Specifichiamo il modello (Mistral 7B v0.3 è ottimo per le chat)
-MODEL_ID = "mistralai/Mistral-7B-Instruct-v0.3"
+
+# CAMBIAMO MODELLO: Zephyr è il "re" della stabilità per la chat gratuita su HF
+MODEL_ID = "HuggingFaceH4/zephyr-7b-beta"
 
 @app.route('/', methods=['GET'])
 def home():
-    return "Maya AI (Conversational Mode) Online", 200
+    return "Maya AI (Stable Chat) Online", 200
 
 @app.route('/ask', methods=['POST'])
 def chat():
@@ -31,9 +32,9 @@ def chat():
         giorno_oggi = data.get("giorno_settimana", "oggi") 
 
         if not query or not HF_TOKEN:
-            return jsonify({"success": False, "error": "Configurazione mancante o domanda vuota"})
+            return jsonify({"success": False, "error": "Token HF mancante o domanda vuota"})
 
-        # Istruzioni di sistema (Il "cervello" di Maya)
+        # Istruzioni di sistema
         system_instructions = f"""
 Sei Maya, l'assistente virtuale di {nome_rist}. Rispondi in italiano.
 Oggi è {giorno_oggi}.
@@ -49,7 +50,7 @@ REGOLE:
 - Sii amichevole e usa emoji 🍕.
 """
 
-        # Usiamo chat_completion (il compito 'conversational')
+        # Chiamata chat_completion
         response = client.chat_completion(
             model=MODEL_ID,
             messages=[
@@ -60,7 +61,6 @@ REGOLE:
             temperature=0.7
         )
         
-        # Estraiamo la risposta testuale
         final_reply = response.choices[0].message.content
         
         return jsonify({
@@ -73,7 +73,7 @@ REGOLE:
         return jsonify({
             "success": False, 
             "error": str(e),
-            "reply": "Scusami, ho avuto un piccolo corto circuito. Puoi riprovare?"
+            "reply": "Scusami, ho avuto un piccolo intoppo tecnico. Prova a riformulare la domanda!"
         })
 
 if __name__ == "__main__":

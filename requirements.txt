@@ -1,4 +1,4 @@
 flask
 flask-cors
-duckduckgo_search
+duckduckgo_search==6.3.0
 gunicorn

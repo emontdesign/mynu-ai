@@ -7,21 +7,23 @@ import sys
 app = Flask(__name__)
 CORS(app)
 
-# --- CONFIGURAZIONE SICURA ---
-# Non scriviamo la chiave qui! La leggeremo dalle impostazioni di Render
+# Recuperiamo il token dalle variabili d'ambiente di Render
 HF_TOKEN = os.getenv("HF_TOKEN")
 
-# Usiamo Mistral-7B (uno dei migliori modelli open source)
-client = InferenceClient("mistralai/Mistral-7B-Instruct-v0.3", token=HF_TOKEN)
+# Inizializziamo il client
+client = InferenceClient(token=HF_TOKEN)
+# Specifichiamo il modello (Mistral 7B v0.3 è ottimo per le chat)
+MODEL_ID = "mistralai/Mistral-7B-Instruct-v0.3"
 
 @app.route('/', methods=['GET'])
 def home():
-    return "Maya AI (Safe Mode) Online", 200
+    return "Maya AI (Conversational Mode) Online", 200
 
 @app.route('/ask', methods=['POST'])
 def chat():
     try:
         data = request.get_json(force=True)
+        
         query = data.get("query", "")
         nome_rist = data.get("nome", "il ristorante")
         menu_data = data.get("menu", "Menu non disponibile")
@@ -31,32 +33,39 @@ def chat():
         if not query or not HF_TOKEN:
             return jsonify({"success": False, "error": "Configurazione mancante o domanda vuota"})
 
-        # Il tuo prompt preferito
-        full_prompt = f"""<s>[INST] Sei Maya, l'assistente virtuale di {nome_rist}. Rispondi in italiano.
+        # Istruzioni di sistema (Il "cervello" di Maya)
+        system_instructions = f"""
+Sei Maya, l'assistente virtuale di {nome_rist}. Rispondi in italiano.
 Oggi è {giorno_oggi}.
 
-CONTESTO OBBLIGATORIO:
-1. MENU (JSON): {menu_data}
-2. ORARI (JSON): {hours_data}
+CONTESTO:
+- MENU: {menu_data}
+- ORARI: {hours_data}
 
-REGOLE DI RISPOSTA:
-- Per gli orari, l'array 'schedule' ha indici da 0 a 6: 0=Lunedì, 1=Martedì, 2=Mercoledì, 3=Giovedì, 4=Venerdì, 5=Sabato, 6=Domenica.
-- Se chiedono 'oggi', guarda il campo 'is_open' e commenta gli orari del giorno corrente.
-- Usa SOLO le informazioni fornite. Se non trovi un piatto o un orario, dì che non lo sai.
-- Sii cordiale e usa le emoji 🍕.
+REGOLE:
+- Orari 'schedule' (0-6): 0=Lun, 1=Mar, 2=Mer, 3=Gio, 4=Ven, 5=Sab, 6=Dom.
+- Se chiedono 'oggi', controlla 'is_open' e il giorno corrente.
+- Usa SOLO i dati forniti. Se non sai qualcosa, dillo gentilmente.
+- Sii amichevole e usa emoji 🍕.
+"""
 
-DOMANDA DEL CLIENTE: {query} [/INST]"""
-
-        response = client.text_generation(
-            full_prompt,
-            max_new_tokens=500,
-            temperature=0.7,
-            repetition_penalty=1.2
+        # Usiamo chat_completion (il compito 'conversational')
+        response = client.chat_completion(
+            model=MODEL_ID,
+            messages=[
+                {"role": "system", "content": system_instructions},
+                {"role": "user", "content": query}
+            ],
+            max_tokens=500,
+            temperature=0.7
         )
+        
+        # Estraiamo la risposta testuale
+        final_reply = response.choices[0].message.content
         
         return jsonify({
             "success": True, 
-            "reply": str(response)
+            "reply": final_reply
         })
 
     except Exception as e:
@@ -64,7 +73,7 @@ DOMANDA DEL CLIENTE: {query} [/INST]"""
         return jsonify({
             "success": False, 
             "error": str(e),
-            "reply": "Scusami, ho un piccolo rallentamento. Riprova!"
+            "reply": "Scusami, ho avuto un piccolo corto circuito. Puoi riprovare?"
         })
 
 if __name__ == "__main__":

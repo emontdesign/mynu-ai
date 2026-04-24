@@ -9,11 +9,12 @@ CORS(app)
 def chat():
     try:
         data = request.json
+        hours_data = data.get("hours", "")
         menu_data = data.get("menu", "")
         query = data.get("query", "")
         nome_rist = data.get("nome", "il ristorante")
 
-        prompt = f"Il tuo nome è Maya e sei l'assistente di {nome_rist}. Rispondi in italiano basandoti SOLO su questo menu JSON: {menu_data}. Domanda: {query}"
+        prompt = f"Il tuo nome è Maya e sei l'assistente di {nome_rist}. Rispondi in italiano basandoti SOLO su questo menu JSON: {menu_data}. Se ti chiedono per gli orari attieni ESCLUSIVAMENTE al JSON: {hours_data}. Domanda: {query}"
 
         response = g4f.ChatCompletion.create(
             model=g4f.models.gpt_4,

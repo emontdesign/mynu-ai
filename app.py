@@ -8,7 +8,7 @@ CORS(app)
 
 @app.route('/', methods=['GET'])
 def home():
-    return "Maya AI (DDG-Style) Online", 200
+    return "Maya AI Online - Pronto al servizio", 200
 
 @app.route('/ask', methods=['POST'])
 def chat():
@@ -25,7 +25,7 @@ def chat():
         if not query:
             return jsonify({"success": False, "error": "Domanda vuota"})
 
-        # Manteniamo il tuo prompt preferito come base di conoscenza
+        # Il tuo prompt preferito adattato
         full_prompt = f"""
 Sei Maya, l'assistente virtuale di {nome_rist}. Rispondi in italiano.
 Oggi è {giorno_oggi}.
@@ -43,22 +43,27 @@ REGOLE DI RISPOSTA:
 DOMANDA DEL CLIENTE: {query}
 """
 
-        # Esecuzione con DuckDuckGo (Leggerissimo, niente SIGKILL)
+        # Chiamata a DuckDuckGo con la nuova sintassi corretta
         with DDGS() as ddgs:
-            # Usiamo gpt-4o-mini che è il più bilanciato
+            # Eseguiamo la richiesta chat
             response = ddgs.chat(full_prompt, model='gpt-4o-mini')
             
-            return jsonify({
-                "success": True, 
-                "reply": str(response)
-            })
+            # Se la risposta è valida, la restituiamo
+            if response:
+                return jsonify({
+                    "success": True, 
+                    "reply": str(response)
+                })
+            else:
+                raise Exception("Risposta vuota dall'AI")
 
     except Exception as e:
-        print(f"ERRORE PYTHON: {str(e)}", file=sys.stderr)
+        # Stampiamo l'errore nei log di Render per vederlo
+        print(f"ERRORE MAYA: {str(e)}", file=sys.stderr)
         return jsonify({
             "success": False, 
             "error": str(e),
-            "reply": "Scusami, ho avuto un piccolo problema tecnico. Riprova!"
+            "reply": "Scusami, ho avuto un piccolo rallentamento. Puoi riprovare?"
         })
 
 if __name__ == "__main__":

@@ -9,33 +9,22 @@ CORS(app)
 @app.route('/ask', methods=['POST'])
 def chat():
     try:
-        # Recupero dati
+        # Recupero sicuro dei dati
         data = request.get_json(force=True)
         
         query = data.get("query", "")
-        nome = data.get("nome", "il ristorante")
-        menu = data.get("menu", "")
-        opening = data.get("opening", "")
-        services = data.get("services", "")
+        nome = data.get("nome", "Ristorante")
+        menu = data.get("menu", "Dati non disponibili")
+        opening = data.get("opening", "Dati non disponibili")
+        services = data.get("services", "Dati non disponibili")
 
         if not query:
-            return jsonify({"success": False, "error": "Messaggio vuoto"})
+            return jsonify({"success": False, "error": "Domanda vuota"})
 
-        # Prompt di sistema
-       system_instruction = f"""
-        ISTRUZIONI RIGIDE: Sei Maya, l'assistente di {nome}. 
-        NON rispondere in modo generico. 
-        USA ESCLUSIVAMENTE i dati qui sotto per rispondere. 
-        
-        MENU: {menu}
-        ORARI: {opening}
-        SERVIZI: {services}
-        
-        Se l'informazione non è in questi dati, dì che non lo sai, non inventare e non dare risposte standard da AI.
-        """
+        # Prompt di sistema su una riga per evitare errori di indentazione
+        system_instruction = f"Sei Maya, assistente di {nome}. Rispondi in italiano. Menu: {menu}. Orari: {opening}. Servizi: {services}. Se chiedono Wi-Fi dai la password se presente. Sii cordiale."
 
-        # CHIAMATA AI: Rimossa la specifica del provider per evitare crash
-        # g4f sceglierà automaticamente il migliore disponibile al momento
+        # Chiamata AI senza specificare provider (auto-select)
         response = g4f.ChatCompletion.create(
             model=g4f.models.gpt_4,
             messages=[
@@ -44,15 +33,14 @@ def chat():
             ],
         )
 
-        # Risposta pulita
         return jsonify({
             "success": True, 
             "reply": str(response)
         })
 
     except Exception as e:
-        # Questo stampa l'errore esatto nei log di Render se succede ancora qualcosa
-        print(f"ERRORE RILEVATO: {str(e)}", file=sys.stderr)
+        # Stampa l'errore nei log di Render
+        print(f"CRASH: {str(e)}", file=sys.stderr)
         return jsonify({
             "success": False, 
             "error": str(e)

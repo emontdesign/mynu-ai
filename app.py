@@ -1,4 +1,5 @@
 import os
+import json
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from huggingface_hub import InferenceClient
@@ -7,12 +8,9 @@ import sys
 app = Flask(__name__)
 CORS(app)
 
-# Recuperiamo il token dalle variabili d'ambiente di Render
 HF_TOKEN = os.getenv("HF_TOKEN")
 client = InferenceClient(token=HF_TOKEN)
 
-# Lista di modelli "sicuri" su HuggingFace (in ordine di priorità)
-# Phi-3 è di Microsoft ed è estremamente stabile e veloce su HF
 MODELS = [
     "microsoft/Phi-3-mini-4k-instruct",
     "Qwen/Qwen2.5-7B-Instruct",
@@ -21,7 +19,7 @@ MODELS = [
 
 @app.route('/', methods=['GET'])
 def home():
-    return "Maya AI (Resilient Mode) Online", 200
+    return "Maya AI (Perfect Timing) Online", 200
 
 @app.route('/ask', methods=['POST'])
 def chat():
@@ -29,39 +27,67 @@ def chat():
         data = request.get_json(force=True)
         query = data.get("query", "")
         nome_rist = data.get("nome", "il ristorante")
-        menu_data = data.get("menu", "Menu non disponibile")
-        hours_data = data.get("hours", "Orari non disponibili")
-        giorno_oggi = data.get("giorno_settimana", "oggi") 
+        giorno_oggi = data.get("giorno_settimana", "oggi")
+        
+        # --- 1. PULIZIA MENU ---
+        menu_raw = data.get("menu", [])
+        if isinstance(menu_raw, str): menu_raw = json.loads(menu_raw)
+        
+        menu_clean = []
+        if isinstance(menu_raw, list):
+            for cat in menu_raw:
+                if not isinstance(cat, dict): continue
+                prod_clean = []
+                for p in cat.get("prodotti", []):
+                    if p.get("note") == "Nota prodotto": p["note"] = ""
+                    prod_clean.append(p)
+                if prod_clean:
+                    cat["prodotti"] = prod_clean
+                    menu_clean.append(cat)
 
-        if not query or not HF_TOKEN:
-            return jsonify({"success": False, "error": "Configurazione mancante"})
+        # --- 2. ESTRAZIONE CHIRURGICA ORARI (IL FIX) ---
+        hours_raw = data.get("hours", {})
+        if isinstance(hours_raw, str): hours_raw = json.loads(hours_raw)
+        
+        orari_stringa = "Non disponibili"
+        if isinstance(hours_raw, dict):
+            idx = hours_raw.get("status", {}).get("day_index")
+            schedule = hours_raw.get("schedule", [])
+            
+            if idx is not None and len(schedule) > idx:
+                oggi = schedule[idx] # Prendiamo SOLO i dati di oggi
+                if isinstance(oggi, list):
+                    turni = []
+                    for t in oggi:
+                        if t.get("is_closed") == 0:
+                            # Puliamo le stringhe HH:MM:SS in HH:MM
+                            ap = t.get("apertura", "")[:5]
+                            ch = t.get("chiusura", "")[:5]
+                            if ap and ch: turni.append(f"{ap} - {ch}")
+                    
+                    if turni:
+                        orari_stringa = " | ".join(turni)
+                    else:
+                        orari_stringa = "Chiuso oggi"
+
+        is_open_now = hours_raw.get("status", {}).get("is_open", False)
+        # -----------------------------------------------
 
         system_instructions = f"""
-Sei Maya, l'assistente virtuale di {nome_rist}. Rispondi in italiano.
-CONTESTO: Menu: {menu_data} | Orari: {hours_data} | Oggi è: {giorno_oggi}.
+Sei Maya, l'assistente di {nome_rist}. Rispondi in italiano.
+OGGI È: {giorno_oggi}.
+ORARI DI OGGI (USA SOLO QUESTI): {orari_stringa}.
+STATO ATTUALE: {"Aperto" if is_open_now else "Chiuso"}.
 
-REGOLE RIGIDE PER GLI ORARI (SISTEMA BINARIO):
-1. SOLO OGGI: Se l'utente chiede degli orari senza specificare un giorno, DEVI rispondere usando solo il 'day_index' di oggi. Non elencare altri giorni della settimana a meno che non venga chiesto esplicitamente.
-2. DIVIETO DI RAGGRUPPAMENTO: Non scrivere mai "da lunedì a venerdì" o simili. Leggi ogni giorno come un'entità separata.
-3. DIVIETO DI CONSIGLIO: È categoricamente vietato scrivere "ti consigliamo di...", "ti aspettiamo", "torna più tardi". Devi solo riportare i dati.
-4. FORMATO TURNI: Ogni turno deve stare su una riga separata. 
-   Esempio:
-   - Mattina: 08:00 - 13:00
-   - Sera: 16:00 - 00:00
-5. STATO: Se is_open è true, scrivi "In questo momento siamo aperti". Se false, "In questo momento siamo chiusi".
+REGOLE ASSOLUTE:
+1. ORARI: Se ti chiedono degli orari, riporta ESATTAMENTE questi: {orari_stringa}. Non inventare altri numeri.
+2. NESSUN CONSIGLIO: Non aggiungere "ti consiglio di venire", "ti aspettiamo". Di' solo l'orario.
+3. FORMATO: Ogni turno orario su una riga separata con un emoji 🍕.
+4. MENU: Un prodotto per riga. Se non c'è una nota reale, non scrivere nulla tra parentesi.
 
-REGOLE RIGIDE PER IL MENU:
-6. ISOLAMENTO: Associa 'note' e 'allergeni' solo al prodotto corrispondente.
-7. FILTRO NOTE: Non scrivere "Nota prodotto". Se la nota è utile (es: "Piccante"), scrivila tra parentesi accanto al prezzo.
-8. A CAPO: Ogni prodotto deve stare su una riga dedicata. Non affiancare mai due prodotti.
-9. CATEGORIE: Salta le categorie senza prodotti.
-
-STILE:
-- Risposte asciutte, cordiali, elenchi puntati, usa emoji 🍕.
-- Se chiedono di ordinare, dì che non è possibile farlo in chat.
+STILE: Telegrafico e preciso.
 """
 
-        # Tentiamo i modelli uno alla volta finché uno non risponde
         last_error = ""
         for model_id in MODELS:
             try:
@@ -71,28 +97,16 @@ STILE:
                         {"role": "system", "content": system_instructions},
                         {"role": "user", "content": query}
                     ],
-                    max_tokens=500,
-                    temperature=0.7
+                    max_tokens=200,
+                    temperature=0.1 # Minima creatività = Massima precisione
                 )
-                final_reply = response.choices[0].message.content
-                
-                # Se arriviamo qui, il modello ha risposto!
-                return jsonify({"success": True, "reply": final_reply})
-            
-            except Exception as e:
-                last_error = str(e)
-                print(f"Modello {model_id} fallito, provo il prossimo... Errore: {last_error}", file=sys.stderr)
-                continue # Passa al prossimo modello nella lista
+                return jsonify({"success": True, "reply": response.choices[0].message.content})
+            except:
+                continue
 
-        # Se arriviamo qui, tutti i modelli hanno fallito
-        return jsonify({
-            "success": False, 
-            "error": "Tutti i provider sono offline",
-            "reply": "Scusami, i miei circuiti sono un po' sovraccarichi. Riprova tra un minuto! 🤖"
-        })
+        return jsonify({"success": False, "reply": "Riprova tra un istante! 🤖"})
 
     except Exception as e:
-        print(f"ERRORE CRITICO: {str(e)}", file=sys.stderr)
         return jsonify({"success": False, "error": str(e)})
 
 if __name__ == "__main__":

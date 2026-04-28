@@ -12,14 +12,14 @@ HF_TOKEN = os.getenv("HF_TOKEN")
 client = InferenceClient(token=HF_TOKEN)
 
 MODELS = [
-    "Qwen/Qwen2.5-1.5B-Instruct",
-    "meta-llama/Llama-3.2-1B-Instruct",
+    "Qwen/Qwen2.5-7B-Instruct", # Modello più potente per gestire menu complessi
+    "meta-llama/Llama-3.2-3B-Instruct",
     "microsoft/Phi-3-mini-4k-instruct"
 ]
 
 @app.route('/', methods=['GET'])
 def home():
-    return "Maya AI (Conversational Mode) Online", 200
+    return "Maya AI (Human & Nested Menu) Online", 200
 
 @app.route('/ask', methods=['POST'])
 def chat():
@@ -29,26 +29,40 @@ def chat():
         nome_rist = data.get("nome", "il ristorante")
         giorno_oggi = data.get("giorno_settimana", "oggi")
         
-        # --- 1. PREPARAZIONE MENU ---
-        menu_raw = data.get("menu", [])
-        if isinstance(menu_raw, str): menu_raw = json.loads(menu_raw)
+        # --- 1. ESTRAZIONE CHIRURGICA DEL MENU ---
+        menu_input = data.get("menu", [])
+        if isinstance(menu_input, str):
+            try: menu_input = json.loads(menu_input)
+            except: menu_input = []
         
-        menu_text = ""
-        if isinstance(menu_raw, list) and len(menu_raw) > 0:
-            for cat in menu_raw:
-                prodotti = cat.get("prodotti", [])
-                if prodotti:
-                    menu_text += f"\n- {cat.get('titolo')}:\n"
-                    for p in prodotti:
-                        nota = p.get("note", "")
-                        nota_str = f"({nota})" if nota and nota.lower() != "nota prodotto" else ""
-                        menu_text += f"  * {p.get('titolo')} a {p.get('prezzo')}€ {nota_str}\n"
+        # Se il JSON ha la chiave "data", prendiamo quella
+        menu_list = menu_input.get("data", []) if isinstance(menu_input, dict) else menu_input
 
-        # --- 2. PREPARAZIONE ORARI ---
+        menu_narrativo = ""
+        if isinstance(menu_list, list):
+            for m in menu_list:
+                # Titolo del Menu (Pranzo, Cena, ecc.)
+                menu_narrativo += f"\n### {m.get('titolo')} ###\n"
+                if m.get('prezzo_fisso', 0) > 0:
+                    menu_narrativo += f"(Prezzo fisso: {m.get('prezzo_fisso')}€)\n"
+                
+                for cat in m.get('categorie', []):
+                    prodotti = cat.get('prodotti', [])
+                    if prodotti: # Regola: Solo categorie con prodotti
+                        menu_narrativo += f"  - Categoria {cat.get('titolo')}:\n"
+                        for p in prodotti:
+                            nota = p.get('note', "")
+                            if not nota or nota.lower() == "nota prodotto": nota = ""
+                            prezzo = p.get('prezzo_scontato') if p.get('prezzo_scontato') else p.get('prezzo')
+                            menu_narrativo += f"    * {p.get('titolo')} ({prezzo}€) {'- ' + nota if nota else ''}\n"
+
+        # --- 2. ESTRAZIONE ORARI ---
         hours_raw = data.get("hours", {})
-        if isinstance(hours_raw, str): hours_raw = json.loads(hours_raw)
+        if isinstance(hours_raw, str):
+            try: hours_raw = json.loads(hours_raw)
+            except: hours_raw = {}
         
-        orari_oggi = "purtroppo non ho i dati sottomano"
+        orari_oggi = "purtroppo non li ho caricati bene"
         is_open_now = False
         if isinstance(hours_raw, dict):
             status = hours_raw.get("status", {})
@@ -60,27 +74,26 @@ def chat():
                          for t in schedule[idx] if t.get('is_closed') == 0]
                 orari_oggi = " e ".join(turni) if turni else "oggi siamo chiusi"
 
-        # --- 3. SYSTEM INSTRUCTIONS (Persona: Maya) ---
+        # --- 3. SYSTEM INSTRUCTIONS (Maya Persona) ---
         system_instructions = f"""
-Sei Maya, l'anima e l'assistente solare di {nome_rist}. Il tuo obiettivo è far sentire il cliente benvenuto.
+Sei Maya, l'anima accogliente di {nome_rist}. Rispondi in italiano con calore e naturalezza.
 
 PERSONALITÀ:
-- Sei amichevole, educata e un pizzico spiritosa. 
-- Rispondi come se fossi una persona reale al bancone del ristorante.
-- Non elencare dati a meno che non ti venga chiesto qualcosa di specifico.
+- Sei solare, amichevole e pronta ad aiutare. Non sei un robot.
+- Rispondi come se parlassi a un amico che entra ora nel locale.
+- Se ti salutano, ricambia il saluto con gioia e chiedi cosa puoi fare. NON dare orari o menu subito.
 
-CONTESTO PER TE (NON RIPETERE SE NON RICHIESTO):
-- Oggi è {giorno_oggi}.
-- I nostri orari di oggi: {orari_oggi}.
-- In questo momento siamo {"Aperti" if is_open_now else "Chiusi"}.
-- Menu reale: {menu_text if menu_text else "Non disponibile al momento"}.
+CONTESTO (USA SOLO SE PERTINENTE):
+- Giorno: {giorno_oggi}
+- Stato Attuale: {"Aperti e pronti ad accoglierti!" if is_open_now else "Chiusi al momento."}
+- Orari di oggi: {orari_oggi}.
+- Proposte del Menu: {menu_narrativo if menu_narrativo else "Stiamo aggiornando le specialità del giorno."}
 
-REGOLE DI CONVERSAZIONE:
-1. SALUTI: Se ti dicono 'Ciao', rispondi calorosamente e chiedi come puoi essere utile. NON dire che giorno è o che orari facciamo a meno che non te lo chiedano.
-2. ORARI: Se chiedono degli orari, rispondi in modo discorsivo (es: "Oggi siamo qui {orari_oggi}! 😊").
-3. MENU: Se chiedono del menu, presenta i piatti in modo invitante. USA SOLO I PIATTI DEL MENU REALE. Non inventare nulla.
-4. NESSUN ROBOT: Evita elenchi puntati freddi se puoi usare una frase gentile.
-5. ORDINI: Se vogliono ordinare, spiega gentilmente che per ora non puoi prendere ordini in chat.
+REGOLE DI RISPOSTA:
+1. NO ELENCHI FREDDI: Se chiedono il menu, presentalo con entusiasmo (es: "Oggi a pranzo abbiamo una deliziosa Pasta al Pomodoro...").
+2. NO "NOTA PRODOTTO": È severamente vietato dire "Nota prodotto". Se la nota è vuota, ignora.
+3. NO RIGIDITÀ: Non ripetere "Oggi è martedì". Se chiedono gli orari, di' semplicemente quando siete aperti.
+4. ORDINI: Se chiedono di ordinare, dì che per ora sei qui per dare info, ma non puoi ancora prendere ordini in chat.
 """
 
         for model_id in MODELS:
@@ -88,17 +101,16 @@ REGOLE DI CONVERSAZIONE:
                 response = client.chat_completion(
                     model=model_id,
                     messages=[{"role": "system", "content": system_instructions}, {"role": "user", "content": query}],
-                    max_tokens=400,
-                    temperature=0.7 # Aumentata per dare più naturalezza
+                    max_tokens=500,
+                    temperature=0.7 # Temperatura ideale per una conversazione umana
                 )
                 return jsonify({"success": True, "reply": response.choices[0].message.content})
-            except Exception as e:
-                continue
+            except: continue
 
-        return jsonify({"success": False, "reply": "Scusami, ho un piccolo calo di zuccheri! Riprova tra un secondo. 🍬"})
+        return jsonify({"success": False, "reply": "Ops, mi sono un attimo distratta! Riprova? 🍕"})
 
     except Exception as e:
-        return jsonify({"success": False, "reply": "Ops! Qualcosa è andato storto nei miei circuiti. 🤖"})
+        return jsonify({"success": False, "error": str(e)})
 
 if __name__ == "__main__":
     app.run(host='0.0.0.0', port=5000)
